@@ -22,6 +22,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to store file: %v", err)
 	}
+
 	retrievedFilePath := "/path/to/your/retrieved_file.txt"
 	err = retrieveFile(filePath, retrievedFilePath)
 	if err != nil {
@@ -35,35 +36,37 @@ func storeFile(filePath string) error {
 		return err
 	}
 	defer file.Close()
-	
+
 	reader := bufio.NewReader(file)
+	return splitAndStore(reader, filePath)
+}
+
+func splitAndStore(reader *bufio.Reader, filePath string) error {
 	buf := make([]byte, chunkSize)
-	
 	chunkIndex := 0
+
 	for {
-		n, err := reader.Read(buf)
-		if err != nil && err != io.EOF {
-			return err
+		n, readErr := reader.Read(buf)
+		if readErr != nil && readErr != io.EOF {
+			return readErr
 		}
 		if n == 0 {
 			break
 		}
-		
-		serverNode := serverNodes[chunkIndex%len(serverNodes)]
-		chunkFilePath := fmt.Sprintf("%s_%d.chunk", filePath, chunkIndex)
-		log.Printf("Storing chunk %d to %s\n", chunkIndex, serverNode)
-		err = storeChunk(chunkFilePath, buf[:n])
-		if err != nil {
+
+		if err := storeChunkToNode(buf[:n], filePath, chunkIndex); err != nil {
 			return err
 		}
-		
 		chunkIndex++
 	}
-	
+
 	return nil
 }
 
-func storeChunk(chunkFilePath string, data []byte) error {
+func storeChunkToNode(data []byte, filePath string, chunkIndex int) error {
+	serverNode := serverNodes[chunkIndex%len(serverNodes)]
+	chunkFilePath := fmt.Sprintf("%s_%d.chunk", filePath, chunkIndex)
+	log.Printf("Storing chunk %d to %s\n", chunkIndex, serverNode)
 	return os.WriteFile(chunkFilePath, data, 0644)
 }
 
@@ -73,7 +76,11 @@ func retrieveFile(baseFilePath, destinationFilePath string) error {
 		return err
 	}
 	defer destFile.Close()
-	
+
+	return reassembleFile(destFile, baseFilePath)
+}
+
+func reassembleFile(destFile *os.File, baseFilePath string) error {
 	chunkIndex := 0
 	for {
 		chunkFilePath := fmt.Sprintf("%s_%d.chunk", baseFilePath, chunkIndex)
@@ -83,25 +90,27 @@ func retrieveFile(baseFilePath, destinationFilePath string) error {
 		} else if err != nil {
 			return err
 		}
-		_, err = destFile.Write(chunk)
-		if err != nil {
-			return err
+
+		if _, writeErr := destFile.Write(chunk); writeErr != nil {
+			return writeErr
 		}
 		chunkIndex++
 	}
-	
+
 	return nil
 }
 
 func getEnvAsInt(key string, defaultValue int) int {
-	val, exists := os.LookupEnv(key)
+	valueStr, exists := os.LookupEnv(key)
 	if !exists {
 		return defaultValue
 	}
-	intVal, err := strconv.Atoi(val)
+
+	valueInt, err := strconv.Atoi(valueStr)
 	if err != nil {
 		log.Printf("Error reading %s as integer, using default %d", key, defaultValue)
 		return defaultValue
 	}
-	return intVal
+
+	return valueInt
 }
