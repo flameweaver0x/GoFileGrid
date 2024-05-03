@@ -9,9 +9,9 @@ import (
 )
 
 func main() {
-	http.HandleFunc("/upload", uploadHandler)
-	http.HandleFunc("/download", downloadHandler)
-	http.HandleFunc("/delete", deleteHandler)
+	http.HandleFunc("/upload", handleUpload)
+	http.HandleFunc("/download", handleDownload)
+	http.HandleFunc("/delete", handleDelete)
 
 	fmt.Println("Server started on port 8080")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
@@ -20,83 +20,83 @@ func main() {
 	}
 }
 
-func uploadHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
+func handleUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	file, header, err := r.FormFile("file")
+	uploadedFile, fileHeader, err := r.FormFile("file")
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error retrieving the file: %s", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Error retrieving the uploaded file: %s", err), http.StatusInternalServerError)
 		return
 	}
-	defer file.Close()
+	defer uploadedFile.Close()
 
-	dir := "uploads/"
-	os.MkdirAll(dir, os.ModePerm) 
+	uploadPath := "uploads/"
+	os.MkdirAll(uploadPath, os.ModePerm)
 
-	filePath := filepath.Join(dir, header.Filename)
-	newFile, err := os.Create(filePath)
+	targetFilePath := filepath.Join(uploadPath, fileHeader.Filename)
+	newFile, err := os.Create(targetFilePath)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error creating the file: %s", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Error creating the new file: %s", err), http.StatusInternalServerError)
 		return
 	}
 	defer newFile.Close()
 
-	if _, err := io.Copy(newFile, file); err != nil {
-		http.Error(w, fmt.Sprintf("Error saving the file: %s", err), http.StatusInternalServerError)
+	if _, err := io.Copy(newFile, uploadedFile); err != nil {
+		http.Error(w, fmt.Sprintf("Error saving the uploaded file: %s", err), http.StatusInternalServerError)
 		return
 	}
 
-	fmt.Fprintf(w, "File uploaded successfully: %s", filePath)
+	fmt.Fprintf(w, "File uploaded successfully: %s", targetFilePath)
 }
 
-func downloadHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
+func handleDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	fileName := r.URL.Query().Get("file")
-	if fileName == "" {
+	requestedFileName := r.URL.Query().Get("file")
+	if requestedFileName == "" {
 		http.Error(w, "File name is required", http.StatusBadRequest)
 		return
 	}
 
-	filePath := filepath.Join("uploads", fileName)
-	file, err := os.Open(filePath)
+	filePath := filepath.Join("uploads", requestedFileName)
+	targetFile, err := os.Open(filePath)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Error opening the file: %s", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Error opening the requested file: %s", err), http.StatusInternalServerError)
 		return
 	}
-	defer file.Close()
+	defer targetFile.Close()
 
-	w.Header().Set("Content-Disposition", "attachment; filename="+fileName)
+	w.Header().Set("Content-Disposition", "attachment; filename="+requestedFileName)
 	w.Header().Set("Content-Type", "application/octet-stream")
-	if _, err := io.Copy(w, file); err != nil {
-		http.Error(w, fmt.Sprintf("Error sending the file: %s", err), http.StatusInternalServerError)
+	if _, err := io.Copy(w, targetFile); err != nil {
+		http.Error(w, fmt.Sprintf("Error sending the requested file: %s", err), http.StatusInternalServerError)
 		return
 	}
 }
 
-func deleteHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "DELETE" {
+func handleDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	fileName := r.URL.Query().Get("file")
-	if fileName == "" {
+	fileNameToDelete := r.URL.Query().Get("file")
+	if fileNameToDelete == "" {
 		http.Error(w, "File name is required", http.StatusBadRequest)
 		return
 	}
 
-	filePath := filepath.Join("uploads", fileName)
-	if err := os.Remove(filePath); err != nil {
+	targetFilePath := filepath.Join("uploads", fileNameToDelete)
+	if err := os.Remove(targetFilePath); err != nil {
 		http.Error(w, fmt.Sprintf("Error deleting the file: %s", err), http.StatusInternalServerError)
 		return
 	}
 
-	fmt.Fprintf(w, "File deleted successfully: %s", fileName)
+	fmt.Fprintf(w, "File deleted successfully: %s", fileNameToDelete)
 }
