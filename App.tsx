@@ -8,7 +8,8 @@ interface File {
 
 const App: React.FC = () => {
   const [files, setFiles] = useState<File[]>([]);
-  const [selectedFile, setSelectedFile] = useState<File|null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchFiles();
@@ -18,8 +19,11 @@ const App: React.FC = () => {
     try {
       const response = await axios.get(`${process.env.REACT_APP_BACKEND_URL}/files`);
       setFiles(response.data);
+      setError(null); // Clear any previous errors
     } catch (error) {
-      console.error("Error fetching files:", error);
+      const message = "Error fetching files. Please try again.";
+      console.error(message, error);
+      setError(message);
     }
   };
 
@@ -30,12 +34,15 @@ const App: React.FC = () => {
       try {
         await axios.post(`${process.env.REACT_APP_BACKEND_URL}/upload`, formData, {
           headers: {
-            'Content-Type': 'multipart/form/data',
+            'Content-Type': 'multipart/form-data', // Corrected the content type
           },
         });
         fetchFiles();
+        setError(null); // Clear any previous errors
       } catch (error) {
-        console.error("Error uploading file:", error);
+        const message = "Error uploading file. Please try again.";
+        console.error(message, error);
+        setError(message);
       }
     }
   };
@@ -51,8 +58,11 @@ const App: React.FC = () => {
       link.setAttribute('download', files.find(file => file.id === fileId)?.name ?? '');
       document.body.appendChild(link);
       link.click();
+      setError(null); // Clear any previous errors
     } catch (error) {
-      console.error("Error downloading file:", error);
+      const message = "Error downloading file. Please try again.";
+      console.error(message, error);
+      setError(message);
     }
   };
 
@@ -60,13 +70,17 @@ const App: React.FC = () => {
     try {
       await axios.delete(`${process.env.REACT_APP_BACKEND_URL}/files/${fileId}`);
       fetchFiles();
+      setError(null); // Clear any previous errors
     } catch (error) {
-      console.error("Error deleting file:", error);
+      const message = "Error deleting file. Please try again.";
+      console.error(message, error);
+      setError(message);
     }
   };
 
   return (
     <div>
+      {error && <p style={{ color: 'red' }}>{error}</p>}
       <input type="file" onChange={handleFileUpload} />
       <ul>
         {files.map(file => (
