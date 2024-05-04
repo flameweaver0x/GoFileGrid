@@ -3,9 +3,11 @@ package main
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 func main() {
@@ -13,9 +15,9 @@ func main() {
 	http.HandleFunc("/download", handleDownload)
 	http.HandleFunc("/delete", handleDelete)
 
-	fmt.Println("Server started on port 8080")
+	logInfo("Server started on port 8080")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
-		fmt.Printf("Error starting server: %s\n", err)
+		logInfo(fmt.Sprintf("Error starting server: %s", err))
 		os.Exit(1)
 	}
 }
@@ -29,6 +31,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	uploadedFile, fileHeader, err := r.FormFile("file")
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error retrieving the uploaded file: %s", err), http.StatusInternalServerError)
+		logInfo(fmt.Sprintf("Upload failed: %s", err))
 		return
 	}
 	defer uploadedFile.Close()
@@ -40,16 +43,19 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	newFile, err := os.Create(targetFilePath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error creating the new file: %s", err), http.StatusInternalServerError)
+		logInfo(fmt.Sprintf("Error creating file: %s", err))
 		return
 	}
 	defer newFile.Close()
 
 	if _, err := io.Copy(newFile, uploadedFile); err != nil {
 		http.Error(w, fmt.Sprintf("Error saving the uploaded file: %s", err), http.StatusInternalServerError)
+		logInfo(fmt.Sprintf("Error in saving file: %s", err))
 		return
 	}
 
 	fmt.Fprintf(w, "File uploaded successfully: %s", targetFilePath)
+	logInfo(fmt.Sprintf("Uploaded: %s", targetFilePath))
 }
 
 func handleDownload(w http.ResponseWriter, r *http.Request) {
@@ -68,6 +74,7 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 	targetFile, err := os.Open(filePath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Error opening the requested file: %s", err), http.StatusInternalServerError)
+		logInfo(fmt.Sprintf("Download failed: %s", err))
 		return
 	}
 	defer targetFile.Close()
@@ -76,8 +83,10 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	if _, err := io.Copy(w, targetFile); err != nil {
 		http.Error(w, fmt.Sprintf("Error sending the requested file: %s", err), http.StatusInternalServerError)
+		logInfo(fmt.Sprintf("Error in sending file: %s", err))
 		return
 	}
+	logInfo(fmt.Sprintf("Downloaded: %s", filePath))
 }
 
 func handleDelete(w http.ResponseWriter, r *http.Request) {
@@ -95,8 +104,14 @@ func handleDelete(w http.ResponseWriter, r *http.Request) {
 	targetFilePath := filepath.Join("uploads", fileNameToDelete)
 	if err := os.Remove(targetFilePath); err != nil {
 		http.Error(w, fmt.Sprintf("Error deleting the file: %s", err), http.StatusInternalServerError)
+		logInfo(fmt.Sprintf("Delete failed: %s", err))
 		return
 	}
 
 	fmt.Fprintf(w, "File deleted successfully: %s", fileNameToDelete)
+	logInfo(fmt.Sprintf("Deleted: %s", fileNameToDelete))
+}
+
+func logInfo(message string) {
+	log.Printf("[%s] %s", time.Now().Format("2006-01-02 15:04:05"), message)
 }
