@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -14,6 +15,7 @@ func main() {
 	http.HandleFunc("/upload", handleUpload)
 	http.HandleFunc("/download", handleDownload)
 	http.HandleFunc("/delete", handleDelete)
+	http.HandleFunc("/list", handleListFiles) // New endpoint to list files
 
 	logInfo("Server started on port 8080")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
@@ -110,6 +112,32 @@ func handleDelete(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, "File deleted successfully: %s", fileNameToDelete)
 	logInfo(fmt.Sprintf("Deleted: %s", fileNameToDelete))
+}
+
+// New function to list all uploaded files
+func handleListFiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	uploadPath := "uploads/"
+	files, err := os.ReadDir(uploadPath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error reading the upload directory: %s", err), http.StatusInternalServerError)
+		logInfo(fmt.Sprintf("Error listing files: %s", err))
+		return
+	}
+
+	var fileList []string
+	for _, file := range files {
+		if !file.IsDir() {
+			fileList = append(fileList, file.Name())
+		}
+	}
+
+	fmt.Fprintf(w, "Files: %s", strings.Join(fileList, ", "))
+	logInfo(fmt.Sprintf("Listed files"))
 }
 
 func logInfo(message string) {
