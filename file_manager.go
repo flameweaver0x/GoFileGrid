@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 )
 
 var (
@@ -45,6 +46,7 @@ func storeFile(filePath string) error {
 
 func splitAndStore(reader *bufio.Reader, filePath string) error {
 	buf := make([]byte, chunkSize)
+	var batchData []byte // Simulated batching data container
 	chunkIndex := 0
 
 	for {
@@ -56,27 +58,56 @@ func splitAndStore(reader *bufio.Reader, filePath string) error {
 			break
 		}
 
-		if err := storeChunkToNode(buf[:n], filePath, chunkIndex); err != nil {
-			return err
+		// Prepare and accumulate batch data. This is a simplified simulation.
+		// In real applications, you would accumulate data in a structure best suited for your storage API.
+		dataToStore := buf[:n]
+		batchData = append(batchData, dataToStore...)
+
+		if len(batchData) >= chunkSize*10 || (readErr == io.EOF && len(batchData) > 0) {
+			if err := storeBatchToNode(batchData, filePath, chunkIndex); err != nil {
+				return err
+			}
+			chunkIndex++
+			batchData = []byte{} // Reset batch data after storing
 		}
-		chunkIndex++
 	}
 
 	return nil
 }
 
-func storeChunkToNode(data []byte, filePath string, chunkIndex int) error {
-	// Calculate checksum
-	hasher := sha256.New()
-	hasher.Write(data)
-	checksum := hasher.Sum(nil)
+func storeBatchToNode(data []byte, filePath string, startIndex int) error {
+	// In a real-world scenario, this method would make a bulk request to an API instead of writing to the disk.
+	// The logic for splitting data back into chunks, computing checksums, and assigning to servers is kept for consistency with your initial design.
+	chunks := splitIntoChunks(data, chunkSize)
+	for i, chunk := range chunks {
+		chunkIndex := startIndex + i
+		serverNode := serverNodes[chunkIndex%len(serverNodes)]
+		chunkFilePath := fmt.Sprintf("%s_%d.chunk", filePath, chunkIndex)
 
-	serverNode := serverNodes[chunkIndex%len(serverNodes)]
-	chunkFilePath := fmt.Sprintf("%s_%d.chunk", filePath, chunkIndex)
-	log.Printf("Storing chunk %d (Checksum: %x) to %s\n", chunkIndex, checksum, serverNode)
-	// Store checksum with data
-	chunkDataWithChecksum := append(checksum, data...)
-	return os.WriteFile(chunkFilePath, chunkDataWithChecksum, 0644)
+		// Calculate checksum for the chunk
+		hasher := sha256.New()
+		hasher.Write(chunk)
+		checksum := hasher.Sum(nil)
+		chunkDataWithChecksum := append(checksum, chunk...)
+
+		log.Printf("Storing chunk %d (Checksum: %x) to %s\n", chunkIndex, checksum, serverNode)
+		if err := os.WriteFile(chunkFilePath, chunkDataWithChecksum, 0644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func splitIntoChunks(data []byte, size int) [][]byte {
+	var chunks [][]byte
+	for len(data) > 0 {
+		if size > len(data) {
+			size = len(data)
+		}
+		chunks = append(chunks, data[:size])
+		data = data[size:]
+	}
+	return chunks
 }
 
 func retrieveFile(baseFilePath, destinationFilePath string) error {
@@ -94,7 +125,6 @@ func reassembleFile(destFile *os.File, baseFilePath string) error {
 	var wg sync.WaitGroup
 	chunkChan := make(chan []byte)
 
-	// Process chunks in parallel
 	go func() {
 		for chunk := range chunkChan {
 			if _, writeErr := destFile.Write(chunk); writeErr != nil {
