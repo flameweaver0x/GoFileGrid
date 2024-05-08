@@ -15,165 +15,158 @@ import (
 )
 
 var (
-	serverNodes = []string{"Server1", "Server2", "Server3"}
-	chunkSize   = getEnvAsInt("CHUNK_SIZE", 5*1024*1024)
+	storageNodes = []string{"Server1", "Server2", "Server3"} 
+	segmentSize  = getEnvironmentVariableAsInt("CHUNK_SIZE", 5*1024*1024) 
 )
 
 func main() {
-	filePath := "/path/to/your/large/file.txt"
-	err := storeFile(filePath)
-	if err != nil {
-		log.Fatalf("Failed to store file: %v", err)
+	sourceFilePath := "/path/to/your/large/file.txt" 
+	if err := distributeFileAcrossNodes(sourceFilePath); err != nil {
+		log.Fatalf("Failed to distribute file across nodes: %v", err)
 	}
 
-	retrievedFilePath := "/path/to/your/retrieved_file.txt"
-	err = retrieveFile(filePath, retrievedFilePath)
-	if err != nil {
-		log.Fatalf("Failed to retrieve file: %v", err)
+	targetFilePath := "/path/to/your/retrieved_file.txt" 
+	if err := reconstructFileFromNodes(sourceFilePath, targetFilePath); err != nil {
+		log.Fatalf("Failed to reconstruct file from nodes: %v", err)
 	}
 }
 
-func storeFile(filePath string) error {
-	file, err := os.Open(filePath)
+func distributeFileAcrossNodes(sourceFilePath string) error {
+	sourceFile, err := os.Open(sourceFilePath)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer sourceFile.Close()
 
-	reader := bufio.NewReader(file)
-	return splitAndStore(reader, filePath)
+	bufferedReader := bufio.NewReader(sourceFile)
+	return splitAndDistribute(bufferedReader, sourceFilePath)
 }
 
-func splitAndStore(reader *bufio.Reader, filePath string) error {
-	buf := make([]byte, chunkSize)
-	var batchData []byte // Simulated batching data container
-	chunkIndex := 0
+func splitAndDistribute(bufferedReader *bufio.Reader, sourceFilePath string) error {
+	segmentBuffer := make([]byte, segmentSize)
+	var batchBuffer []byte 
+	segmentIndex := 0
 
 	for {
-		n, readErr := reader.Read(buf)
+		bytesRead, readErr := bufferedReader.Read(segmentBuffer)
 		if readErr != nil && readErr != io.EOF {
 			return readErr
 		}
-		if n == 0 {
+		if bytesRead == 0 {
 			break
 		}
 
-		// Prepare and accumulate batch data. This is a simplified simulation.
-		// In real applications, you would accumulate data in a structure best suited for your storage API.
-		dataToStore := buf[:n]
-		batchData = append(batchData, dataToStore...)
+		segmentData := segmentBuffer[:bytesRead]
+		batchBuffer = append(batchBuffer, segmentData...)
 
-		if len(batchData) >= chunkSize*10 || (readErr == io.EOF && len(batchData) > 0) {
-			if err := storeBatchToNode(batchData, filePath, chunkIndex); err != nil {
+		if len(batchBuffer) >= segmentSize*10 || (readErr == io.EOF && len(batchBuffer) > 0) {
+			if err := distributeBatchToStorageNode(batchBuffer, sourceFilePath, segmentIndex); err != nil {
 				return err
 			}
-			chunkIndex++
-			batchData = []byte{} // Reset batch data after storing
+			segmentIndex++
+			batchBuffer = []byte{} 
 		}
 	}
 
 	return nil
 }
 
-func storeBatchToNode(data []byte, filePath string, startIndex int) error {
-	// In a real-world scenario, this method would make a bulk request to an API instead of writing to the disk.
-	// The logic for splitting data back into chunks, computing checksums, and assigning to servers is kept for consistency with your initial design.
-	chunks := splitIntoChunks(data, chunkSize)
-	for i, chunk := range chunks {
-		chunkIndex := startIndex + i
-		serverNode := serverNodes[chunkIndex%len(serverNodes)]
-		chunkFilePath := fmt.Sprintf("%s_%d.chunk", filePath, chunkIndex)
+func distributeBatchToStorageNode(batchBuffer []byte, sourceFilePath string, startIndex int) error {
+	segments := splitIntoSegments(batchBuffer, segmentSize)
+	for i, segment := range segments {
+		segmentIndex := startIndex + i
+		node := storageNodes[segmentIndex%len(storageNodes)]
+		segmentFilePath := fmt.Sprintf("%s_%d.chunk", sourceFilePath, segmentIndex)
 
-		// Calculate checksum for the chunk
 		hasher := sha256.New()
-		hasher.Write(chunk)
+		hasher.Write(segment)
 		checksum := hasher.Sum(nil)
-		chunkDataWithChecksum := append(checksum, chunk...)
+		segmentDataWithChecksum := append(checksum, segment...)
 
-		log.Printf("Storing chunk %d (Checksum: %x) to %s\n", chunkIndex, checksum, serverNode)
-		if err := os.WriteFile(chunkFilePath, chunkDataWithChecksum, 0644); err != nil {
+		log.Printf("Distributing segment %d (Checksum: %x) to %s\n", segmentIndex, checksum, node)
+		if err := os.WriteFile(segmentFilePath, segmentDataWithChecksum, 0644); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func splitIntoChunks(data []byte, size int) [][]byte {
-	var chunks [][]byte
+func splitIntoSegments(data []byte, size int) [][]byte {
+	var segments [][]byte
 	for len(data) > 0 {
 		if size > len(data) {
 			size = len(data)
 		}
-		chunks = append(chunks, data[:size])
+		segments = append(segments, data[:size])
 		data = data[size:]
 	}
-	return chunks
+	return segments
 }
 
-func retrieveFile(baseFilePath, destinationFilePath string) error {
-	destFile, err := os.Create(destinationFilePath)
+func reconstructFileFromNodes(sourceFilePath, targetFilePath string) error {
+	targetFile, err := os.Create(targetFilePath)
 	if err != nil {
 		return err
 	}
-	defer destFile.Close()
+	defer targetFile.Close()
 
-	return reassembleFile(destFile, baseFilePath)
+	return assembleFileFromSegments(targetFile, sourceFilePath)
 }
 
-func reassembleFile(destFile *os.File, baseFilePath string) error {
-	chunkIndex := 0
-	var wg sync.WaitGroup
-	chunkChan := make(chan []byte)
+func assembleFileFromSegments(targetFile *os.File, sourceFilePath string) error {
+	segmentIndex := 0
+	var assembleWaitGroup sync.WaitGroup
+	segmentChannel := make(chan []byte)
 
 	go func() {
-		for chunk := range chunkChan {
-			if _, writeErr := destFile.Write(chunk); writeErr != nil {
-				log.Printf("Error writing chunk to file: %v", writeErr)
+		for segment := range segmentChannel {
+			if _, err := targetFile.Write(segment); err != nil {
+				log.Printf("Error writing segment to file: %v", err)
 				continue
 			}
 		}
 	}()
 
 	for {
-		wg.Add(1)
-		chunkFilePath := fmt.Sprintf("%s_%d.chunk", baseFilePath, chunkIndex)
-		go func(chunkFilePath string, index int) {
-			defer wg.Done()
-			chunkDataWithChecksum, err := os.ReadFile(chunkFilePath)
+		assembleWaitGroup.Add(1)
+		segmentFilePath := fmt.Sprintf("%s_%d.chunk", sourceFilePath, segmentIndex)
+		go func(filePath string) {
+			defer assembleWaitGroup.Done()
+			segmentData, err := os.ReadFile(filePath)
 			if err == os.ErrNotExist {
-				close(chunkChan)
+				close(segmentChannel)
 				return
 			} else if err != nil {
-				log.Printf("Error reading chunk: %v", err)
+				log.Printf("Error reading segment: %v", err)
 				return
 			}
 
-			if len(chunkDataWithChecksum) <= sha256.Size {
-				log.Printf("Invalid chunk size, skipping: %s", chunkFilePath)
+			if len(segmentData) <= sha256.Size {
+				log.Printf("Invalid segment size, skipping: %s", filePath)
 				return
 			}
 
-			checksum, data := chunkDataWithChecksum[:sha256.Size], chunkDataWithChecksum[sha256.Size:]
-			calculatedChecksum := sha256.Sum256(data)
-			if !bytes.Equal(checksum, calculatedChecksum[:]) {
-				log.Printf("Checksum mismatch, skipping chunk: %s", chunkFilePath)
+			storedChecksum, data := segmentData[:sha256.Size], segmentData[sha256.Size:]
+			computedChecksum := sha256.Sum256(data)
+			if !bytes.Equal(storedChecksum, computedChecksum[:]) {
+				log.Printf("Checksum mismatch, skipping segment: %s", filePath)
 				return
 			}
 
-			chunkChan <- data
-		}(chunkFilePath, chunkIndex)
+			segmentChannel <- data
+		}(segmentFilePath)
 
-		chunkIndex++
-		if chunkIndex%len(serverNodes) == 0 { // Assume each file chunk retrieval starts after the previous one
-			time.Sleep(1 * time.Second) // Simulate network/disk latency
+		segmentIndex++
+		if segmentIndex%len(storageNodes) == 0 {
+			time.Sleep(1 * time.Second) 
 		}
 	}
 
-	wg.Wait() // Wait for all go routines to finish
+	assembleWaitGroup.Wait() 
 	return nil
 }
 
-func getEnvAsInt(key string, defaultValue int) int {
+func getEnvironmentVariableAsInt(key string, defaultValue int) int {
 	valueStr, exists := os.LookupEnv(key)
 	if !exists {
 		return defaultValue
@@ -181,7 +174,7 @@ func getEnvAsInt(key string, defaultValue int) int {
 
 	valueInt, err := strconv.Atoi(valueStr)
 	if err != nil {
-		log.Printf("Error reading %s as integer, using default %d", key, defaultValue)
+		log.Printf("Error parsing %s as integer, using default %d", key, defaultValue)
 		return defaultValue
 	}
 
