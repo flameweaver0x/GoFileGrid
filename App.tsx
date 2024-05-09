@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
 interface File {
@@ -12,14 +12,9 @@ const App: React.FC = () => {
 
   useEffect(() => {
     fetchFiles();
-    return () => {
-      files.forEach(file => {
-        URL.revokeObjectURL(file.id);
-      });
-    };
-  }, [files]);
+  }, []);
 
-  const fetchFiles = useCallback(async () => {
+  const fetchFiles = async () => {
     try {
       const response = await axios.get(`${process.env.REACT_APP_BACKEND_URL}/files`);
       setFiles(response.data);
@@ -29,7 +24,7 @@ const App: React.FC = () => {
       console.error(message, err);
       setError(message);
     }
-  }, []);
+  };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const formData = new FormData();
@@ -51,20 +46,25 @@ const App: React.FC = () => {
     }
   };
 
-const handleFileDownload = async (fileId: string) => {
+  const handleFileDownload = async (fileId: string) => {
     try {
       const response = await axios.get(`${process.env.REACT_APP_BACKEND_URL}/files/${fileId}`, {
         responseType: 'blob',
       });
       const file = files.find(file => file.id === fileId);
+      
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', file?.name ?? '');
       document.body.appendChild(link);
       link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+        link.remove();
+      }, 0);
+      
       setError(null);
     } catch (err) {
       const message = "Error downloading file. Please try again.";
@@ -76,7 +76,7 @@ const handleFileDownload = async (fileId: string) => {
   const handleFileDelete = async (fileId: string) => {
     try {
       await axios.delete(`${process.env.REACT_APP_BACKEND_URL}/files/${fileId}`);
-      fetchFiles();
+      setFiles(currentFiles => currentFiles.filter(file => file.id !== fileId));
       setError(null);
     } catch (err) {
       const message = "Error deleting file. Please try again.";
