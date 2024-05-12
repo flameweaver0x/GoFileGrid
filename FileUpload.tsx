@@ -10,38 +10,46 @@ interface FileWithPreview extends File {
 
 const FileUpload: React.FC = () => {
   const [files, setFiles] = useState<FileWithPreview[]>([]);
-  
-  const uploadFile = (file: FileWithPreview, index: number) => {
-    const formData = new FormData();
-    formData.append('file', file);
 
-    const config = {
+  const updateFileProgress = (index: number, progress: number) => {
+    setFiles((prevFiles) =>
+      prevFiles.map((f, idx) => (idx === index ? { ...f, uploadProgress: progress } : f)),
+    );
+  };
+
+  const markFileAsError = (index: number) => {
+    setFiles((prevFiles) =>
+      prevFiles.map((f, idx) => (idx === index ? { ...f, error: true } : f)),
+    );
+  };
+
+  const uploadFileConfig = (file: FileWithPreview, index: number) => {
+    return {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
       onUploadProgress: (progressEvent: { loaded: number; total: number; }) => {
         const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        setFiles((prevFiles) =>
-          prevFiles.map((f, idx) => (idx === index ? { ...f, uploadProgress: percentCompleted } : f)),
-        );
+        updateFileProgress(index, percentCompleted);
       },
     };
+  };
 
-    axios.post(`${process.env.REACT_APP_UPLOAD_ENDPOINT}`, formData, config)
-      .then(() => {
-        setFiles((prevFiles) =>
-          prevFiles.map((f, idx) => (idx === index ? { ...f, uploadProgress: 100 } : f)),
-        );
-      })
-      .catch(() => {
-        setFiles((prevFiles) =>
-          prevFiles.map((f, idx) => (idx === index ? { ...f, error: true } : f)),
-        );
-      });
+  const uploadFile = (file: FileWithPreview, index: number) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    axios.post(`${process.env.REACT_APP_UPLOAD_ENDPOINT}`, formData, uploadFileConfig(file, index))
+      .then(() => updateFileProgress(index, 100))
+      .catch(() => markFileAsError(index));
   };
 
   const handleFileDrop = useCallback((acceptedFiles: File[]) => {
-    const mappedFiles: FileWithPreview[] = acceptedFiles.map(file => Object.assign(file, { preview: URL.createObjectURL(file), uploadProgress: 0, error: false }));
+    const mappedFiles: FileWithPreview[] = acceptedFiles.map(file => Object.assign(file, {
+      preview: URL.createObjectURL(file),
+      uploadProgress: 0,
+      error: false
+    }));
     setFiles(prevFiles => [...prevFiles, ...mappedFiles]);
     mappedFiles.forEach(uploadFile);
   }, []);
